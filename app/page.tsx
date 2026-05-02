@@ -114,14 +114,18 @@ export default function Home() {
   async function handleDiscover() {
     setDiscovering(true);
     setMcpOnline(null);
-    const port = await discoverMcpPort();
+    const { port, error } = await discoverMcpPort();
     setDiscovering(false);
     if (port) {
       setMcpPort(port);
       setMcpOnline(true);
+      addLog({ type: "success", text: `Connected to MCP server on port ${port}` });
     } else {
       setMcpOnline(false);
-      addLog({ type: "error", text: "No MCP server found on ports 8180–8195. Is SolidWorksMcp.exe running?" });
+      addLog({
+        type: "error",
+        text: error ?? "No MCP server found on ports 8180–8195. Is SolidWorksMcp.exe running?",
+      });
     }
   }
 
