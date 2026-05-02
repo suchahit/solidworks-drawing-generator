@@ -35,6 +35,10 @@ export const SW_TOOLS: Anthropic.Tool[] = [
           description:
             "If true (default), only imports dimensions marked-for-drawing. If false, also imports axes, planes, and cosmetic threads.",
         },
+        hole_callouts: {
+          type: "boolean",
+          description: "Add hole callout annotations to circular features. Default true.",
+        },
         properties: {
           type: "object",
           description:
@@ -133,6 +137,20 @@ export const SW_TOOLS: Anthropic.Tool[] = [
       required: ["path"],
     },
   },
+  {
+    name: "sw_auto_annotate",
+    description:
+      "Adds center marks and hole callouts to every model view in the active drawing. " +
+      "Run after inserting views and model annotations. " +
+      "Center marks are always added; pass hole_callouts=false to skip callouts.",
+    input_schema: {
+      type: "object",
+      properties: {
+        center_marks:  { type: "boolean", description: "Insert center marks on circular edges. Default true." },
+        hole_callouts: { type: "boolean", description: "Insert hole callout annotations. Default true." },
+      },
+    },
+  },
 ];
 
 // Maps Anthropic tool names → MCP tool names
@@ -146,6 +164,7 @@ export const TOOL_NAME_MAP: Record<string, string> = {
   sw_insert_model_annotations: "sw.insert_model_annotations",
   sw_populate_title_block: "sw.populate_title_block",
   sw_save_drawing_as: "sw.save_drawing_as",
+  sw_auto_annotate:   "sw.auto_annotate",
 };
 
 export const SYSTEM_PROMPT = `You are an AI assistant that controls a local SOLIDWORKS instance through an MCP (Model Context Protocol) server running on the user's machine. You generate engineering drawings automatically.
@@ -160,4 +179,6 @@ Guidelines:
 - Use conservative annotations by default (only dimensions marked for drawing)
 - If the user provides title block info (description, material, drawn by, revision, etc.), pass them as the properties object
 - Output path: if not given, save next to the part file with the same name but .slddrw extension
-- Always confirm success and tell the user where the drawing was saved`;
+- Always confirm success and tell the user where the drawing was saved
+- sw_generate_drawing automatically adds center marks and hole callouts (via auto_annotate step) — no need to call sw_auto_annotate separately unless the user asks to re-run annotation on an existing drawing
+- Hole callout positions are approximate for isometric views and may need manual adjustment; mention this when relevant`;

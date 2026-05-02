@@ -341,6 +341,7 @@ export default function Home() {
     try {
       const result = await callMcpTool(mcpPort, "sw.get_open_parts", {}) as { parts?: { title: string; path: string }[] };
       setOpenParts(result.parts ?? []);
+      setMcpOnline(true); // a successful tool call confirms the server is reachable
     } catch (err) {
       addLog({ type: "error", text: `Could not list open parts: ${err instanceof Error ? err.message : String(err)}` });
       setOpenParts([]);
@@ -508,7 +509,7 @@ export default function Home() {
 
             <button
               type="submit"
-              disabled={running || !form.partPath || mcpOnline === false}
+              disabled={running || !form.partPath}
               className="mt-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2"
             >
               {running ? (
