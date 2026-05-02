@@ -30,7 +30,7 @@ export async function callMcpTool(
   const url = `http://127.0.0.1:${port}/mcp/invoke`;
   const body = {
     jsonrpc: "2.0",
-    id: Date.now(),
+    id: String(Date.now()),
     method: "tools/call",
     params: { name: toolName, arguments: args },
   };
