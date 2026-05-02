@@ -17,6 +17,13 @@ const TITLES: Record<string, string> = {
 };
 
 export async function GET(req: NextRequest) {
+  if (process.platform !== "win32") {
+    return NextResponse.json(
+      { path: null, error: "The file browser only works when you run the app locally on Windows (http://localhost:3000). Type the path manually instead." },
+      { status: 400 }
+    );
+  }
+
   const { searchParams } = req.nextUrl;
   const filter = searchParams.get("filter") ?? "sldprt";
   const saveAs = searchParams.get("saveAs") === "true";
@@ -27,11 +34,21 @@ export async function GET(req: NextRequest) {
 
   const scriptLines = [
     "Add-Type -AssemblyName System.Windows.Forms",
+    "[System.Windows.Forms.Application]::EnableVisualStyles()",
+    // A hidden top-most owner form forces the dialog to the foreground
+    // instead of appearing behind the browser window.
+    "$owner = New-Object System.Windows.Forms.Form",
+    "$owner.TopMost = $true",
+    "$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual",
+    "$owner.Location = New-Object System.Drawing.Point(0,0)",
+    "$owner.Size = New-Object System.Drawing.Size(1,1)",
+    "$owner.Show()",
     `$d = New-Object System.Windows.Forms.${dialogType}`,
     `$d.Title = "${title}"`,
     `$d.Filter = "${filterStr}"`,
     ...(saveAs ? [`$d.DefaultExt = "${filter}"`] : []),
-    "$null = $d.ShowDialog()",
+    "$null = $d.ShowDialog($owner)",
+    "$owner.Dispose()",
     "Write-Output $d.FileName",
   ];
 
@@ -41,7 +58,8 @@ export async function GET(req: NextRequest) {
   try {
     const { stdout } = await execFileAsync(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+      // Omit -NonInteractive so WinForms can pump the UI message loop
+      ["-NoProfile", "-EncodedCommand", encoded],
       { timeout: 60_000 }
     );
     const path = stdout.trim();

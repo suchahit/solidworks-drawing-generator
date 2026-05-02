@@ -75,6 +75,9 @@ export default function Home() {
   const [mcpOnline, setMcpOnline] = useState<boolean | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [running, setRunning] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const [openParts, setOpenParts] = useState<{ title: string; path: string }[] | null>(null);
+  const [loadingParts, setLoadingParts] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
   const logIdRef = useRef(0);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -316,12 +319,33 @@ export default function Home() {
   // ── Field helper ──────────────────────────────────────────────────────────
 
   async function handleBrowse(filter: string, saveAs: boolean, key: keyof DrawingFormValues) {
+    setBrowsing(true);
     try {
       const res = await fetch(`/api/browse?filter=${filter}&saveAs=${saveAs}`);
-      const data = await res.json() as { path: string | null };
-      if (data.path) setForm((f) => ({ ...f, [key]: data.path! }));
-    } catch {
-      // user cancelled or server unavailable — leave field unchanged
+      const data = await res.json() as { path: string | null; error?: string };
+      if (data.path) {
+        setForm((f) => ({ ...f, [key]: data.path! }));
+      } else if (data.error) {
+        addLog({ type: "error", text: data.error });
+      }
+    } catch (err) {
+      addLog({ type: "error", text: `Browse failed: ${err instanceof Error ? err.message : String(err)}` });
+    } finally {
+      setBrowsing(false);
+    }
+  }
+
+  async function handleLoadOpenParts() {
+    setLoadingParts(true);
+    setOpenParts(null);
+    try {
+      const result = await callMcpTool(mcpPort, "sw.get_open_parts", {}) as { parts?: { title: string; path: string }[] };
+      setOpenParts(result.parts ?? []);
+    } catch (err) {
+      addLog({ type: "error", text: `Could not list open parts: ${err instanceof Error ? err.message : String(err)}` });
+      setOpenParts([]);
+    } finally {
+      setLoadingParts(false);
     }
   }
 
@@ -347,11 +371,11 @@ export default function Home() {
             <button
               type="button"
               onClick={() => handleBrowse(opts.browse!.filter, opts.browse!.saveAs ?? false, key)}
-              disabled={running}
-              className="shrink-0 border border-gray-300 rounded px-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              disabled={running || browsing}
+              className="shrink-0 border border-gray-300 rounded px-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 min-w-[2rem]"
               title="Browse…"
             >
-              …
+              {browsing ? "⟳" : "…"}
             </button>
           )}
         </div>
@@ -397,7 +421,62 @@ export default function Home() {
         <aside className="w-80 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
           <form onSubmit={handleGenerate} className="p-4 flex flex-col gap-4">
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Part & Output</div>
-            {field("Part File (.sldprt)", "partPath", { placeholder: "C:\\Parts\\bracket.sldprt", required: true, browse: { filter: "sldprt" } })}
+            {/* Part File — with "pick from open SOLIDWORKS files" picker */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-gray-600">Part File (.sldprt)</label>
+                <button
+                  type="button"
+                  onClick={handleLoadOpenParts}
+                  disabled={running || !mcpOnline || loadingParts}
+                  className="text-xs text-blue-600 hover:underline disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {loadingParts ? "Loading…" : "Pick from open SOLIDWORKS files"}
+                </button>
+              </div>
+
+              {openParts !== null && (
+                <div className="mb-1.5 border border-gray-200 rounded divide-y divide-gray-100 max-h-36 overflow-y-auto">
+                  {openParts.length === 0 ? (
+                    <p className="px-2 py-2 text-xs text-gray-500 italic">No parts currently open in SOLIDWORKS</p>
+                  ) : (
+                    openParts.map((p) => (
+                      <button
+                        key={p.path}
+                        type="button"
+                        onClick={() => { setForm((f) => ({ ...f, partPath: p.path })); setOpenParts(null); }}
+                        disabled={running}
+                        className="w-full text-left px-2 py-1.5 hover:bg-blue-50 disabled:opacity-50 block"
+                      >
+                        <span className="text-xs font-medium text-gray-800 block truncate">{p.title}</span>
+                        <span className="text-xs text-gray-400 block truncate">{p.path}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  value={form.partPath}
+                  onChange={(e) => setForm((f) => ({ ...f, partPath: e.target.value }))}
+                  placeholder="C:\Parts\bracket.sldprt"
+                  required
+                  disabled={running}
+                />
+                <button
+                  type="button"
+                  onClick={() => handleBrowse("sldprt", false, "partPath")}
+                  disabled={running || browsing}
+                  className="shrink-0 border border-gray-300 rounded px-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 min-w-[2rem]"
+                  title="Browse…"
+                >
+                  {browsing ? "⟳" : "…"}
+                </button>
+              </div>
+            </div>
             {field("Output Path (.slddrw)", "outputPath", { placeholder: "Leave blank to save next to part", browse: { filter: "slddrw", saveAs: true } })}
             {field("Template (.drwdot)", "templatePath", { browse: { filter: "drwdot" } })}
 
