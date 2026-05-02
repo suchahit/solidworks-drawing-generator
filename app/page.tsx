@@ -315,23 +315,46 @@ export default function Home() {
 
   // ── Field helper ──────────────────────────────────────────────────────────
 
+  async function handleBrowse(filter: string, saveAs: boolean, key: keyof DrawingFormValues) {
+    try {
+      const res = await fetch(`/api/browse?filter=${filter}&saveAs=${saveAs}`);
+      const data = await res.json() as { path: string | null };
+      if (data.path) setForm((f) => ({ ...f, [key]: data.path! }));
+    } catch {
+      // user cancelled or server unavailable — leave field unchanged
+    }
+  }
+
   function field(
     label: string,
     key: keyof DrawingFormValues,
-    opts?: { placeholder?: string; required?: boolean }
+    opts?: { placeholder?: string; required?: boolean; browse?: { filter: string; saveAs?: boolean } }
   ) {
     return (
       <div>
         <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-        <input
-          type="text"
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          value={form[key]}
-          onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-          placeholder={opts?.placeholder}
-          required={opts?.required}
-          disabled={running}
-        />
+        <div className={opts?.browse ? "flex gap-1" : undefined}>
+          <input
+            type="text"
+            className={`${opts?.browse ? "flex-1" : "w-full"} border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
+            value={form[key]}
+            onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+            placeholder={opts?.placeholder}
+            required={opts?.required}
+            disabled={running}
+          />
+          {opts?.browse && (
+            <button
+              type="button"
+              onClick={() => handleBrowse(opts.browse!.filter, opts.browse!.saveAs ?? false, key)}
+              disabled={running}
+              className="shrink-0 border border-gray-300 rounded px-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              title="Browse…"
+            >
+              …
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -374,9 +397,9 @@ export default function Home() {
         <aside className="w-80 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
           <form onSubmit={handleGenerate} className="p-4 flex flex-col gap-4">
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Part & Output</div>
-            {field("Part File (.sldprt)", "partPath", { placeholder: "C:\\Parts\\bracket.sldprt", required: true })}
-            {field("Output Path (.slddrw)", "outputPath", { placeholder: "Leave blank to save next to part" })}
-            {field("Template (.drwdot)", "templatePath")}
+            {field("Part File (.sldprt)", "partPath", { placeholder: "C:\\Parts\\bracket.sldprt", required: true, browse: { filter: "sldprt" } })}
+            {field("Output Path (.slddrw)", "outputPath", { placeholder: "Leave blank to save next to part", browse: { filter: "slddrw", saveAs: true } })}
+            {field("Template (.drwdot)", "templatePath", { browse: { filter: "drwdot" } })}
 
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Paper Size</label>
