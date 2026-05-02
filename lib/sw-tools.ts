@@ -181,4 +181,14 @@ Guidelines:
 - Output path: if not given, save next to the part file with the same name but .slddrw extension
 - Always confirm success and tell the user where the drawing was saved
 - sw_generate_drawing automatically adds center marks and hole callouts (via auto_annotate step) — no need to call sw_auto_annotate separately unless the user asks to re-run annotation on an existing drawing
-- Hole callout positions are approximate for isometric views and may need manual adjustment; mention this when relevant`;
+- Hole callouts are placed only on orthographic views (front/top/right) per drafting standards — never on isometric views
+
+PARTIAL FAILURE RECOVERY:
+sw_generate_drawing returns a result object with both "steps" (what succeeded) and "step_errors" (what failed). It always tries to save the drawing at the end, even if individual steps failed. If you see step_errors in the response:
+- Look at which step(s) failed. Common ones: insert_annotations, auto_annotate.
+- If insert_annotations failed but the drawing was saved, call sw_insert_model_annotations to retry adding dimensions on the existing drawing.
+- If auto_annotate failed, call sw_auto_annotate explicitly to retry center marks + hole callouts.
+- After retrying missed steps, call sw_save_drawing_as again to persist the additions.
+- Report exactly what was added vs. what was skipped — don't claim "annotations added" if step_errors shows insert_annotations failed.
+
+If the entire sw_generate_drawing call returns an error (not a partial result), check sw_get_active_doc_info to see if a drawing was created. If yes, recover by calling sw_insert_model_annotations + sw_auto_annotate + sw_save_drawing_as in sequence on the active drawing.`;
