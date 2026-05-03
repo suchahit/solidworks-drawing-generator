@@ -14,6 +14,30 @@ interface LogEntry {
   detail?: string;
 }
 
+interface ReadinessReport {
+  ready: boolean;
+  score: number;
+  missing_properties: string[];
+  material: string;
+  material_assigned: boolean;
+  has_dimxpert: boolean;
+  default_named_features: string[];
+  warnings: string[];
+}
+
+interface PartInventory {
+  bounding_box: {
+    min_x: number; min_y: number; min_z: number;
+    max_x: number; max_y: number; max_z: number;
+    length: number; width: number; height: number;
+  } | null;
+  primary_axis: string;
+  hole_count: number;
+  pattern_count: number;
+  patterns: { feature_name: string; type: string; instance_count: number }[];
+  body_count: number;
+}
+
 interface DrawingFormValues {
   partPath: string;
   outputPath: string;
@@ -78,6 +102,9 @@ export default function Home() {
   const [browsing, setBrowsing] = useState(false);
   const [openParts, setOpenParts] = useState<{ title: string; path: string }[] | null>(null);
   const [loadingParts, setLoadingParts] = useState(false);
+  const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [inventory, setInventory] = useState<PartInventory | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const logIdRef = useRef(0);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -113,6 +140,36 @@ export default function Home() {
     });
     return () => { cancelled = true; };
   }, [mcpPort]);
+
+  // ── Part readiness + geometry inventory auto-check (debounced) ────────────
+  useEffect(() => {
+    if (!form.partPath || mcpOnline === false) {
+      setReadiness(null);
+      setInventory(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setReadinessLoading(true);
+      try {
+        // Run sequentially so the second call sees the part already open from the first
+        const readinessResult = await callMcpTool(mcpPort, "sw.get_part_readiness", { part_path: form.partPath });
+        if (cancelled) return;
+        if ((readinessResult as { error?: string }).error) setReadiness(null);
+        else setReadiness(readinessResult as unknown as ReadinessReport);
+
+        const inventoryResult = await callMcpTool(mcpPort, "sw.analyze_part_geometry", { part_path: form.partPath });
+        if (cancelled) return;
+        if ((inventoryResult as { error?: string }).error) setInventory(null);
+        else setInventory(inventoryResult as unknown as PartInventory);
+      } catch {
+        if (!cancelled) { setReadiness(null); setInventory(null); }
+      } finally {
+        if (!cancelled) setReadinessLoading(false);
+      }
+    }, 600);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [form.partPath, mcpPort, mcpOnline]);
 
   async function handleDiscover() {
     setDiscovering(true);
@@ -477,6 +534,50 @@ export default function Home() {
                   {browsing ? "⟳" : "…"}
                 </button>
               </div>
+
+              {readinessLoading && (
+                <p className="mt-1.5 text-xs text-gray-500 italic">Checking part readiness…</p>
+              )}
+              {readiness && !readinessLoading && (
+                <div className={`mt-1.5 text-xs px-2 py-1.5 rounded border ${
+                  readiness.score >= 80 ? "bg-green-50 border-green-200 text-green-800"
+                  : readiness.score >= 50 ? "bg-amber-50 border-amber-200 text-amber-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+                }`}>
+                  <div className="font-semibold flex items-center justify-between">
+                    <span>Readiness: {readiness.score}/100 {readiness.ready && "✓"}</span>
+                  </div>
+                  {readiness.warnings.length > 0 && (
+                    <ul className="mt-1 list-disc list-inside space-y-0.5">
+                      {readiness.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  )}
+                </div>
+              )}
+
+              {inventory && !readinessLoading && (
+                <div className="mt-1.5 text-xs px-2 py-1.5 rounded border bg-slate-50 border-slate-200 text-slate-700 space-y-0.5">
+                  {inventory.bounding_box && (
+                    <div>
+                      <span className="font-semibold">Size:</span>{" "}
+                      {(inventory.bounding_box.length * 1000).toFixed(1)} ×{" "}
+                      {(inventory.bounding_box.width  * 1000).toFixed(1)} ×{" "}
+                      {(inventory.bounding_box.height * 1000).toFixed(1)} mm
+                      <span className="text-slate-500"> (primary: {inventory.primary_axis})</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-semibold">Features:</span>{" "}
+                    {inventory.hole_count} hole{inventory.hole_count === 1 ? "" : "s"},{" "}
+                    {inventory.pattern_count} pattern{inventory.pattern_count === 1 ? "" : "s"}
+                    {inventory.patterns.length > 0 && (
+                      <span className="text-slate-500">
+                        {" "}({inventory.patterns.map(p => `${p.feature_name}: ${p.instance_count}× ${p.type}`).join(", ")})
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             {field("Output Path (.slddrw)", "outputPath", { placeholder: "Leave blank to save next to part", browse: { filter: "slddrw", saveAs: true } })}
             {field("Template (.drwdot)", "templatePath", { browse: { filter: "drwdot" } })}

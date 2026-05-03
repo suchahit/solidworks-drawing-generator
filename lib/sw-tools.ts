@@ -138,6 +138,35 @@ export const SW_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "sw_analyze_part_geometry",
+    description:
+      "Read-only geometry analysis of a part. Returns a JSON inventory: bounding box, primary axis, " +
+      "hole features, and pattern features (linear/circular/mirror with seed feature names). " +
+      "sw_generate_drawing calls this internally and includes the result as part_inventory in its response. " +
+      "Call directly only if the user asks about part dimensions, hole counts, or pattern structure.",
+    input_schema: {
+      type: "object",
+      properties: {
+        part_path: { type: "string", description: "Full Windows path to the .sldprt." },
+      },
+      required: ["part_path"],
+    },
+  },
+  {
+    name: "sw_get_part_readiness",
+    description:
+      "Inspects a part file WITHOUT modifying it and returns a JSON readiness report: missing properties, " +
+      "material status, DimXpert presence, default-named features, and an overall score (0-100). " +
+      "Call BEFORE sw_generate_drawing if the user wants a quality check, or to explain why a drawing has gaps.",
+    input_schema: {
+      type: "object",
+      properties: {
+        part_path: { type: "string", description: "Full Windows path to the .sldprt." },
+      },
+      required: ["part_path"],
+    },
+  },
+  {
     name: "sw_auto_annotate",
     description:
       "Adds center marks and hole callouts to every model view in the active drawing. " +
@@ -165,6 +194,8 @@ export const TOOL_NAME_MAP: Record<string, string> = {
   sw_populate_title_block: "sw.populate_title_block",
   sw_save_drawing_as: "sw.save_drawing_as",
   sw_auto_annotate:   "sw.auto_annotate",
+  sw_get_part_readiness:    "sw.get_part_readiness",
+  sw_analyze_part_geometry: "sw.analyze_part_geometry",
 };
 
 export const SYSTEM_PROMPT = `You are an AI assistant that controls a local SOLIDWORKS instance through an MCP (Model Context Protocol) server running on the user's machine. You generate engineering drawings automatically.
@@ -191,4 +222,7 @@ sw_generate_drawing returns a result object with both "steps" (what succeeded) a
 - After retrying missed steps, call sw_save_drawing_as again to persist the additions.
 - Report exactly what was added vs. what was skipped — don't claim "annotations added" if step_errors shows insert_annotations failed.
 
-If the entire sw_generate_drawing call returns an error (not a partial result), check sw_get_active_doc_info to see if a drawing was created. If yes, recover by calling sw_insert_model_annotations + sw_auto_annotate + sw_save_drawing_as in sequence on the active drawing.`;
+If the entire sw_generate_drawing call returns an error (not a partial result), check sw_get_active_doc_info to see if a drawing was created. If yes, recover by calling sw_insert_model_annotations + sw_auto_annotate + sw_save_drawing_as in sequence on the active drawing.
+
+PART READINESS:
+sw_get_part_readiness inspects a part without modifying it and returns a quality score (0-100) plus warnings about missing custom properties, missing material, missing DimXpert, and default-named features. If the user asks why a drawing has gaps (empty title block, no dimensions, etc.) call this tool to explain. Mention low scores in your response so users know which drawings need manual cleanup.`;
