@@ -138,6 +138,24 @@ export const SW_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "sw_add_section_view",
+    description:
+      "EXPERIMENTAL — adds a section view to the active drawing. Use ONLY when the user explicitly asks for a section view, " +
+      "or when sw_analyze_part_geometry's internal_features.has_internal_features is true AND the user has approved adding one. " +
+      "Best-effort: returns success=false with an error message on failure (do not retry blindly — surface the error to the user). " +
+      "The cutting line direction defaults to 'horizontal'; for parts where the primary axis is X, horizontal is correct.",
+    input_schema: {
+      type: "object",
+      properties: {
+        letter:      { type: "string", description: "Section letter (A, B, C...). Default 'A'." },
+        direction:   { type: "string", enum: ["horizontal", "vertical"], description: "Cut direction. Default 'horizontal'." },
+        source_view: { type: "string", description: "Optional source view name. Defaults to the first orthographic view." },
+        section_x:   { type: "number", description: "Override sheet X position (meters)." },
+        section_y:   { type: "number", description: "Override sheet Y position (meters)." },
+      },
+    },
+  },
+  {
     name: "sw_analyze_part_geometry",
     description:
       "Read-only geometry analysis of a part. Returns a JSON inventory: bounding box, primary axis, " +
@@ -196,6 +214,7 @@ export const TOOL_NAME_MAP: Record<string, string> = {
   sw_auto_annotate:   "sw.auto_annotate",
   sw_get_part_readiness:    "sw.get_part_readiness",
   sw_analyze_part_geometry: "sw.analyze_part_geometry",
+  sw_add_section_view:      "sw.add_section_view",
 };
 
 export const SYSTEM_PROMPT = `You are an AI assistant that controls a local SOLIDWORKS instance through an MCP (Model Context Protocol) server running on the user's machine. You generate engineering drawings automatically.
@@ -225,4 +244,11 @@ sw_generate_drawing returns a result object with both "steps" (what succeeded) a
 If the entire sw_generate_drawing call returns an error (not a partial result), check sw_get_active_doc_info to see if a drawing was created. If yes, recover by calling sw_insert_model_annotations + sw_auto_annotate + sw_save_drawing_as in sequence on the active drawing.
 
 PART READINESS:
-sw_get_part_readiness inspects a part without modifying it and returns a quality score (0-100) plus warnings about missing custom properties, missing material, missing DimXpert, and default-named features. If the user asks why a drawing has gaps (empty title block, no dimensions, etc.) call this tool to explain. Mention low scores in your response so users know which drawings need manual cleanup.`;
+sw_get_part_readiness inspects a part without modifying it and returns a quality score (0-100) plus warnings about missing custom properties, missing material, missing DimXpert, and default-named features. If the user asks why a drawing has gaps (empty title block, no dimensions, etc.) call this tool to explain. Mention low scores in your response so users know which drawings need manual cleanup.
+
+SECTION VIEWS (EXPERIMENTAL):
+sw_generate_drawing's response includes part_inventory.internal_features.has_internal_features. When this is true, the part has Cut-Extrude / Cut-Revolve / Shell features that may not be fully visible from standard ortho views. DO NOT auto-add a section view — sw_add_section_view is experimental and may fail. Instead:
+1. After generation, mention to the user that the part has internal features (cite the counts)
+2. Ask if they'd like a section view added
+3. Only if they confirm, call sw_add_section_view (default args usually work for a basic horizontal cut on the front view)
+4. If sw_add_section_view returns success=false, surface the error verbatim — do not retry. The user may need to add the section view manually.`;
