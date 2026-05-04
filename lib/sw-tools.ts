@@ -171,6 +171,131 @@ export const SW_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "sw_add_auto_balloons",
+    description:
+      "Auto-places balloons on the active drawing's iso view (or specified source view). " +
+      "Defaults to one balloon per UNIQUE component (not per instance) per drafting convention. " +
+      "Used inside sw_generate_assembly_drawing's flow. Call standalone to re-run balloons " +
+      "after editing a drawing or to test different layout options. Returns balloon_count on success.",
+    input_schema: {
+      type: "object",
+      properties: {
+        layout:               { type: "string", enum: ["square", "circular", "top", "bottom", "left", "right"], description: "Default 'square'." },
+        source_view:          { type: "string", description: "Optional view name. Defaults to iso view, falling back to first assembly-referencing view." },
+        ignore_multiple:      { type: "boolean", description: "True (default) = one balloon per unique component. False = balloon every instance." },
+        attach_to_faces:      { type: "boolean", description: "True (default) = leaders attach to faces. False = edges." },
+        insert_magnetic_line: { type: "boolean", description: "Insert a magnetic line for balloon alignment. Default false." },
+      },
+    },
+  },
+  {
+    name: "sw_analyze_assembly_drawing_quality",
+    description:
+      "Read-only quality audit of the active assembly drawing. Walks sheets/views to count BOM rows + balloons " +
+      "(detecting mismatches), inspects drawing-level custom properties, finds components missing a PartNumber " +
+      "(blank BOM rows), and flags suppressed components. Returns a 0-100 score and warnings array. " +
+      "sw_generate_assembly_drawing calls this automatically and embeds the result as quality_report. " +
+      "Call standalone after manual edits to re-score the drawing.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "sw_add_exploded_view_sheet",
+    description:
+      "Adds a new sheet to the active assembly drawing and inserts an iso view of the assembly in exploded state. " +
+      "Mirrors Sheet 1's paper size and template. Used inside sw_generate_assembly_drawing's flow when the assembly " +
+      "has an exploded view defined. Call standalone to add an exploded sheet to an existing drawing, or to retry " +
+      "after creating an exploded view in the assembly. Returns success=true with exploded=false + explode_error " +
+      "if the configuration has no exploded view (iso view still gets inserted, just collapsed).",
+    input_schema: {
+      type: "object",
+      properties: {
+        sheet_name:         { type: "string", description: "Name for the new sheet. Default 'Exploded View'." },
+        source_view:        { type: "string", description: "Optional source view name to read assembly path from. Defaults to first assembly-referencing view." },
+        exploded_view_name: { type: "string", description: "Optional named exploded view (when assembly has multiple)." },
+      },
+    },
+  },
+  {
+    name: "sw_add_bom_table",
+    description:
+      "Inserts a Bill of Materials table on the active drawing. Used inside sw_generate_assembly_drawing's flow " +
+      "but exposed standalone for adding BOMs to existing drawings or for re-running the BOM after the agent " +
+      "modifies an assembly. Auto-finds a source view that references an assembly. " +
+      "Returns success=false with a structured error on failure (e.g., no assembly view, invalid template).",
+    input_schema: {
+      type: "object",
+      properties: {
+        bom_type:      { type: "string", enum: ["top_level", "parts_only", "indented"], description: "Default 'top_level'." },
+        anchor:        { type: "string", enum: ["top_right", "top_left", "bottom_right", "bottom_left"], description: "Default 'top_right'." },
+        template_path: { type: "string", description: "Optional .sldbomtbt path. Empty = SOLIDWORKS default." },
+        source_view:   { type: "string", description: "Optional view name. Defaults to first view that references an assembly." },
+        configuration: { type: "string", description: "Optional configuration name. Empty = active." },
+      },
+    },
+  },
+  {
+    name: "sw_generate_assembly_drawing",
+    description:
+      "End-to-end orchestrator for ASSEMBLY drawings (.sldasm). Sheet 1: iso-primary view + optional " +
+      "front view + BOM table + auto-balloons on the iso view. Sheet 2: exploded iso view (skipped via " +
+      "include_exploded_sheet=false). After save, runs a quality audit and returns a quality_report block " +
+      "with a 0-100 score and warnings (missing PartNumbers, BOM/balloon mismatches, missing drawing " +
+      "properties, suppressed components). Returns a step-by-step result with assembly_inventory, " +
+      "bom_result, balloon_result, exploded_sheet_result, quality_report, and a features_pending list " +
+      "(section_views still pending). For PART drawings (.sldprt) call sw_generate_drawing instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        assembly_path: { type: "string", description: "Full Windows path to the .sldasm." },
+        output_path:   { type: "string", description: "Full Windows path where the .slddrw should be saved (extension added if missing)." },
+        template_path: { type: "string", description: "Optional .drwdot template. An assembly template is recommended but any drawing template works." },
+        paper_size:    { type: "string", enum: ["A", "B", "C", "D", "E"], description: "ANSI paper size. Default A." },
+        include_front: { type: "boolean", description: "Insert a front orientation view alongside the iso. Default true." },
+        include_bom:   { type: "boolean", description: "Insert a Bill of Materials table. Default true." },
+        bom_type:      { type: "string",  enum: ["top_level", "parts_only", "indented"], description: "Default 'top_level'. Use 'indented' for multi-level assemblies." },
+        bom_anchor:    { type: "string",  enum: ["top_right", "top_left", "bottom_right", "bottom_left"], description: "BOM corner placement. Default 'top_right'." },
+        include_balloons: { type: "boolean", description: "Auto-place balloons on the iso view. Default true." },
+        balloon_layout:   { type: "string",  enum: ["square", "circular", "top", "bottom", "left", "right"], description: "Balloon arrangement. Default 'square'." },
+        include_exploded_sheet: { type: "boolean", description: "Add a second sheet with the assembly's exploded iso view. Default true. Skipped silently if the assembly has no exploded view (the iso view still gets inserted on the second sheet, just collapsed)." },
+        exploded_sheet_name:    { type: "string",  description: "Name for the second sheet. Default 'Exploded View'." },
+        properties:    { type: "object", description: "Custom properties to set on the assembly. Recommended keys: Description, AssemblyNumber, Revision, DrawnBy." },
+      },
+      required: ["assembly_path", "output_path"],
+    },
+  },
+  {
+    name: "sw_analyze_assembly_geometry",
+    description:
+      "Read-only geometry analysis of an assembly file (.sldasm). Returns a JSON inventory: bounding box, " +
+      "primary axis, and component statistics (total instances, unique part files, sub-assembly count + max depth, " +
+      "flexible components, components using non-default configurations). " +
+      "Use after sw_get_assembly_readiness to give the user a structural summary, or as input data " +
+      "when generating an assembly drawing (BOM row count, view scaling, multi-sheet decisions).",
+    input_schema: {
+      type: "object",
+      properties: {
+        assembly_path: { type: "string", description: "Full Windows path to the .sldasm." },
+      },
+      required: ["assembly_path"],
+    },
+  },
+  {
+    name: "sw_get_assembly_readiness",
+    description:
+      "Inspects an assembly file (.sldasm) WITHOUT modifying it. Returns a JSON report: missing top-level " +
+      "custom properties (Description, AssemblyNumber, Revision, DrawnBy), component health (count, suppressed, " +
+      "missing-on-disk, missing-PartNumber list), configuration names + exploded-view presence, and mate counts. " +
+      "Call this BEFORE attempting to generate an assembly drawing. Routes by file extension: " +
+      "use sw_get_part_readiness for .sldprt files, this for .sldasm files.",
+    input_schema: {
+      type: "object",
+      properties: {
+        assembly_path: { type: "string", description: "Full Windows path to the .sldasm." },
+      },
+      required: ["assembly_path"],
+    },
+  },
+  {
     name: "sw_get_part_readiness",
     description:
       "Inspects a part file WITHOUT modifying it and returns a JSON readiness report: missing properties, " +
@@ -214,7 +339,14 @@ export const TOOL_NAME_MAP: Record<string, string> = {
   sw_auto_annotate:   "sw.auto_annotate",
   sw_get_part_readiness:    "sw.get_part_readiness",
   sw_analyze_part_geometry: "sw.analyze_part_geometry",
-  sw_add_section_view:      "sw.add_section_view",
+  sw_add_section_view:        "sw.add_section_view",
+  sw_get_assembly_readiness:    "sw.get_assembly_readiness",
+  sw_analyze_assembly_geometry: "sw.analyze_assembly_geometry",
+  sw_generate_assembly_drawing: "sw.generate_assembly_drawing",
+  sw_add_bom_table:             "sw.add_bom_table",
+  sw_add_auto_balloons:         "sw.add_auto_balloons",
+  sw_add_exploded_view_sheet:           "sw.add_exploded_view_sheet",
+  sw_analyze_assembly_drawing_quality:  "sw.analyze_assembly_drawing_quality",
 };
 
 export const SYSTEM_PROMPT = `You are an AI assistant that controls a local SOLIDWORKS instance through an MCP (Model Context Protocol) server running on the user's machine. You generate engineering drawings automatically.
@@ -245,6 +377,25 @@ If the entire sw_generate_drawing call returns an error (not a partial result), 
 
 PART READINESS:
 sw_get_part_readiness inspects a part without modifying it and returns a quality score (0-100) plus warnings about missing custom properties, missing material, missing DimXpert, and default-named features. If the user asks why a drawing has gaps (empty title block, no dimensions, etc.) call this tool to explain. Mention low scores in your response so users know which drawings need manual cleanup.
+
+FILE TYPE ROUTING:
+SOLIDWORKS uses three model file extensions. Route tool calls strictly by extension — DO NOT cross-call:
+- .sldprt → part. Use sw_get_part_readiness, sw_analyze_part_geometry, sw_generate_drawing.
+- .sldasm → assembly. Use sw_get_assembly_readiness, sw_analyze_assembly_geometry, sw_generate_assembly_drawing.
+- .slddrw → existing drawing. Operate on it directly with sw_insert_model_annotations, sw_auto_annotate, sw_save_drawing_as, etc.
+
+ASSEMBLY DRAWING SCOPE (sw_generate_assembly_drawing):
+The assembly drawing flow produces a multi-sheet drawing. Sheet 1: iso view (primary, prominent), optional front view, BOM table (top-level, top-right by default), and auto-balloons on the iso view (one per UNIQUE component, square layout). Sheet 2: exploded iso view of the assembly. After save, Sheet 1 is re-activated so the user opens to the primary sheet. Inspect FOUR result blocks in the response: bom_result, balloon_result, exploded_sheet_result, and quality_report. Surface any success=false errors verbatim. Common failures:
+- bom_result: source view doesn't reference an assembly, or template has no BOM anchor and fallback positioning failed.
+- balloon_result: source view didn't activate, AutoBalloon5 returned null (usually means the iso view has no components), or CreateAutoBalloonOptions unavailable.
+- exploded_sheet_result with success=true but exploded=false: the assembly has no exploded view defined for the active configuration. The second sheet still has a (collapsed) iso view; tell the user they can either define an exploded view in the assembly and re-run sw_add_exploded_view_sheet, or pass include_exploded_sheet=false next time to skip it.
+QUALITY REPORT: quality_report is the most important block to read aloud. Fields:
+- score (0-100): overall drawing quality.
+- warnings: array of human-readable issues. Read these to the user verbatim — they're already phrased for an end user.
+- components_missing_part_number: list of component names whose BOM rows will render blank. If non-empty, suggest the user fix PartNumber in those components and re-run sw_analyze_assembly_drawing_quality to re-score.
+- balloon_bom_mismatch: |bom_row_count - balloon_count|. >0 usually means balloons need a re-run via sw_add_auto_balloons with a different source_view, or the BOM was inserted on the wrong view.
+- drawing_properties_missing: top-level title-block fields that are blank.
+Pending feature in features_pending: section_views (user-triggered via sw_add_section_view).
 
 SECTION VIEWS (EXPERIMENTAL):
 sw_generate_drawing's response includes part_inventory.internal_features.has_internal_features. When this is true, the part has Cut-Extrude / Cut-Revolve / Shell features that may not be fully visible from standard ortho views. DO NOT auto-add a section view — sw_add_section_view is experimental and may fail. Instead:

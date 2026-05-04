@@ -6,14 +6,19 @@ const execFileAsync = promisify(execFile);
 
 const FILTERS: Record<string, string> = {
   sldprt: "SOLIDWORKS Part (*.sldprt)|*.sldprt|All Files (*.*)|*.*",
+  sldasm: "SOLIDWORKS Assembly (*.sldasm)|*.sldasm|All Files (*.*)|*.*",
   slddrw: "SOLIDWORKS Drawing (*.slddrw)|*.slddrw|All Files (*.*)|*.*",
   drwdot: "Drawing Template (*.drwdot)|*.drwdot|All Files (*.*)|*.*",
+  // 'model' covers parts and assemblies — used by the Part/Assembly file picker
+  model:  "SOLIDWORKS Model (*.sldprt;*.sldasm)|*.sldprt;*.sldasm|Parts (*.sldprt)|*.sldprt|Assemblies (*.sldasm)|*.sldasm|All Files (*.*)|*.*",
 };
 
 const TITLES: Record<string, string> = {
   sldprt: "Select SOLIDWORKS Part",
+  sldasm: "Select SOLIDWORKS Assembly",
   slddrw: "Save Drawing As",
   drwdot: "Select Drawing Template",
+  model:  "Select SOLIDWORKS Part or Assembly",
 };
 
 export async function GET(req: NextRequest) {

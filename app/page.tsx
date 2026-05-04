@@ -38,6 +38,24 @@ interface PartInventory {
   body_count: number;
 }
 
+interface AssemblyInventory {
+  bounding_box: {
+    min_x: number; min_y: number; min_z: number;
+    max_x: number; max_y: number; max_z: number;
+    length: number; width: number; height: number;
+  } | null;
+  primary_axis: string;
+  components: {
+    total_instances: number;
+    unique_parts: number;
+    part_instance_count: number;
+    subassembly_count: number;
+    max_depth: number;
+    flexible_count: number;
+    non_default_config_count: number;
+  };
+}
+
 interface DrawingFormValues {
   partPath: string;
   outputPath: string;
@@ -105,6 +123,7 @@ export default function Home() {
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [inventory, setInventory] = useState<PartInventory | null>(null);
+  const [assemblyInventory, setAssemblyInventory] = useState<AssemblyInventory | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const logIdRef = useRef(0);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -141,29 +160,50 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [mcpPort]);
 
-  // ── Part readiness + geometry inventory auto-check (debounced) ────────────
+  // ── Readiness + inventory auto-check (debounced, routed by file type) ─────
   useEffect(() => {
     if (!form.partPath || mcpOnline === false) {
       setReadiness(null);
       setInventory(null);
+      setAssemblyInventory(null);
       return;
     }
     let cancelled = false;
     const timer = setTimeout(async () => {
       setReadinessLoading(true);
       try {
-        // Run sequentially so the second call sees the part already open from the first
-        const readinessResult = await callMcpTool(mcpPort, "sw.get_part_readiness", { part_path: form.partPath });
-        if (cancelled) return;
-        if ((readinessResult as { error?: string }).error) setReadiness(null);
-        else setReadiness(readinessResult as unknown as ReadinessReport);
+        const isAssembly = form.partPath.toLowerCase().endsWith(".sldasm");
 
-        const inventoryResult = await callMcpTool(mcpPort, "sw.analyze_part_geometry", { part_path: form.partPath });
-        if (cancelled) return;
-        if ((inventoryResult as { error?: string }).error) setInventory(null);
-        else setInventory(inventoryResult as unknown as PartInventory);
+        if (isAssembly) {
+          // Assembly path: readiness + assembly geometry analyzer (sequential
+          // so the second call reuses the open document from the first)
+          const readinessResult = await callMcpTool(mcpPort, "sw.get_assembly_readiness", { assembly_path: form.partPath });
+          if (cancelled) return;
+          if ((readinessResult as { error?: string }).error) setReadiness(null);
+          else setReadiness(readinessResult as unknown as ReadinessReport);
+
+          const geomResult = await callMcpTool(mcpPort, "sw.analyze_assembly_geometry", { assembly_path: form.partPath });
+          if (cancelled) return;
+          if ((geomResult as { error?: string }).error) setAssemblyInventory(null);
+          else setAssemblyInventory(geomResult as unknown as AssemblyInventory);
+
+          setInventory(null);
+        } else {
+          // Part path: readiness + part geometry inventory (sequential for same reason)
+          const readinessResult = await callMcpTool(mcpPort, "sw.get_part_readiness", { part_path: form.partPath });
+          if (cancelled) return;
+          if ((readinessResult as { error?: string }).error) setReadiness(null);
+          else setReadiness(readinessResult as unknown as ReadinessReport);
+
+          const inventoryResult = await callMcpTool(mcpPort, "sw.analyze_part_geometry", { part_path: form.partPath });
+          if (cancelled) return;
+          if ((inventoryResult as { error?: string }).error) setInventory(null);
+          else setInventory(inventoryResult as unknown as PartInventory);
+
+          setAssemblyInventory(null);
+        }
       } catch {
-        if (!cancelled) { setReadiness(null); setInventory(null); }
+        if (!cancelled) { setReadiness(null); setInventory(null); setAssemblyInventory(null); }
       } finally {
         if (!cancelled) setReadinessLoading(false);
       }
@@ -333,20 +373,24 @@ export default function Home() {
     setRunning(true);
     setLog([]);
 
+    const isAssembly = form.partPath.toLowerCase().endsWith(".sldasm");
+
     const outputPath =
       form.outputPath ||
-      form.partPath.replace(/\.sldprt$/i, ".slddrw").replace(/\.SLDPRT$/i, ".slddrw");
+      form.partPath.replace(/\.(sldprt|sldasm)$/i, ".slddrw");
 
+    // For assemblies the title-block field is conventionally "AssemblyNumber"
+    // rather than "PartNumber" — remap the Part Number form input accordingly.
     const properties: Record<string, string> = {};
     if (form.description) properties["Description"] = form.description;
-    if (form.partNumber) properties["PartNumber"] = form.partNumber;
-    if (form.material) properties["Material"] = form.material;
-    if (form.drawnBy) properties["DrawnBy"] = form.drawnBy;
-    if (form.revision) properties["Revision"] = form.revision;
-    if (form.project) properties["Project"] = form.project;
+    if (form.partNumber)  properties[isAssembly ? "AssemblyNumber" : "PartNumber"] = form.partNumber;
+    if (form.material)    properties["Material"] = form.material;
+    if (form.drawnBy)     properties["DrawnBy"]  = form.drawnBy;
+    if (form.revision)    properties["Revision"] = form.revision;
+    if (form.project)     properties["Project"]  = form.project;
 
     const userPrompt = [
-      `Generate a SOLIDWORKS drawing for the part at: ${form.partPath}`,
+      `Generate a SOLIDWORKS drawing for the ${isAssembly ? "assembly" : "part"} at: ${form.partPath}`,
       `Save the drawing to: ${outputPath}`,
       form.templatePath ? `Use template: ${form.templatePath}` : "",
       `Paper size: ANSI ${form.paperSize}`,
@@ -482,7 +526,7 @@ export default function Home() {
             {/* Part File — with "pick from open SOLIDWORKS files" picker */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-gray-600">Part File (.sldprt)</label>
+                <label className="text-xs font-medium text-gray-600">Part / Assembly File</label>
                 <button
                   type="button"
                   onClick={handleLoadOpenParts}
@@ -526,7 +570,7 @@ export default function Home() {
                 />
                 <button
                   type="button"
-                  onClick={() => handleBrowse("sldprt", false, "partPath")}
+                  onClick={() => handleBrowse("model", false, "partPath")}
                   disabled={running || browsing}
                   className="shrink-0 border border-gray-300 rounded px-2 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50 min-w-[2rem]"
                   title="Browse…"
@@ -576,6 +620,41 @@ export default function Home() {
                       </span>
                     )}
                   </div>
+                </div>
+              )}
+
+              {assemblyInventory && !readinessLoading && (
+                <div className="mt-1.5 text-xs px-2 py-1.5 rounded border bg-slate-50 border-slate-200 text-slate-700 space-y-0.5">
+                  {assemblyInventory.bounding_box && (
+                    <div>
+                      <span className="font-semibold">Size:</span>{" "}
+                      {(assemblyInventory.bounding_box.length * 1000).toFixed(1)} ×{" "}
+                      {(assemblyInventory.bounding_box.width  * 1000).toFixed(1)} ×{" "}
+                      {(assemblyInventory.bounding_box.height * 1000).toFixed(1)} mm
+                      <span className="text-slate-500"> (primary: {assemblyInventory.primary_axis})</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="font-semibold">Components:</span>{" "}
+                    {assemblyInventory.components.total_instances} total,{" "}
+                    {assemblyInventory.components.unique_parts} unique
+                    {assemblyInventory.components.subassembly_count > 0 && (
+                      <span>
+                        , {assemblyInventory.components.subassembly_count} sub-asm
+                        {" "}(depth {assemblyInventory.components.max_depth})
+                      </span>
+                    )}
+                  </div>
+                  {assemblyInventory.components.flexible_count > 0 && (
+                    <div className="text-slate-500">
+                      {assemblyInventory.components.flexible_count} flexible component{assemblyInventory.components.flexible_count === 1 ? "" : "s"}
+                    </div>
+                  )}
+                  {assemblyInventory.components.non_default_config_count > 0 && (
+                    <div className="text-slate-500">
+                      {assemblyInventory.components.non_default_config_count} component{assemblyInventory.components.non_default_config_count === 1 ? "" : "s"} using non-default configuration
+                    </div>
+                  )}
                 </div>
               )}
             </div>
