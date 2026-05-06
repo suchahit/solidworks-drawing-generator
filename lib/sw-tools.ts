@@ -140,18 +140,22 @@ export const SW_TOOLS: Anthropic.Tool[] = [
   {
     name: "sw_add_section_view",
     description:
-      "EXPERIMENTAL — adds a section view to the active drawing. Use ONLY when the user explicitly asks for a section view, " +
-      "or when sw_analyze_part_geometry's internal_features.has_internal_features is true AND the user has approved adding one. " +
+      "EXPERIMENTAL — adds a section view to the active drawing. Works on parts AND assemblies. " +
+      "Use ONLY when the user explicitly asks for a section view, or (for parts) when " +
+      "sw_analyze_part_geometry's internal_features.has_internal_features is true AND the user has approved one. " +
       "Best-effort: returns success=false with an error message on failure (do not retry blindly — surface the error to the user). " +
-      "The cutting line direction defaults to 'horizontal'; for parts where the primary axis is X, horizontal is correct.",
+      "The cutting line direction defaults to 'horizontal'; for parts where the primary axis is X, horizontal is correct. " +
+      "ASSEMBLIES: pass excluded_components (array of component names) to skip parts in the cut. " +
+      "Names not found in the assembly are reported in excluded_not_found rather than failing the call.",
     input_schema: {
       type: "object",
       properties: {
-        letter:      { type: "string", description: "Section letter (A, B, C...). Default 'A'." },
-        direction:   { type: "string", enum: ["horizontal", "vertical"], description: "Cut direction. Default 'horizontal'." },
-        source_view: { type: "string", description: "Optional source view name. Defaults to the first orthographic view." },
-        section_x:   { type: "number", description: "Override sheet X position (meters)." },
-        section_y:   { type: "number", description: "Override sheet Y position (meters)." },
+        letter:              { type: "string", description: "Section letter (A, B, C...). Default 'A'." },
+        direction:           { type: "string", enum: ["horizontal", "vertical"], description: "Cut direction. Default 'horizontal'." },
+        source_view:         { type: "string", description: "Optional source view name. Defaults to the first orthographic view." },
+        section_x:           { type: "number", description: "Override sheet X position (meters)." },
+        section_y:           { type: "number", description: "Override sheet Y position (meters)." },
+        excluded_components: { type: "array",  items: { type: "string" }, description: "ASSEMBLIES ONLY — array of component Name2 strings to exclude from the section cut." },
       },
     },
   },
@@ -397,9 +401,10 @@ QUALITY REPORT: quality_report is the most important block to read aloud. Fields
 - drawing_properties_missing: top-level title-block fields that are blank.
 Pending feature in features_pending: section_views (user-triggered via sw_add_section_view).
 
-SECTION VIEWS (EXPERIMENTAL):
+SECTION VIEWS (EXPERIMENTAL — parts and assemblies):
 sw_generate_drawing's response includes part_inventory.internal_features.has_internal_features. When this is true, the part has Cut-Extrude / Cut-Revolve / Shell features that may not be fully visible from standard ortho views. DO NOT auto-add a section view — sw_add_section_view is experimental and may fail. Instead:
 1. After generation, mention to the user that the part has internal features (cite the counts)
 2. Ask if they'd like a section view added
 3. Only if they confirm, call sw_add_section_view (default args usually work for a basic horizontal cut on the front view)
-4. If sw_add_section_view returns success=false, surface the error verbatim — do not retry. The user may need to add the section view manually.`;
+4. If sw_add_section_view returns success=false, surface the error verbatim — do not retry. The user may need to add the section view manually.
+ASSEMBLIES: same flow but pass excluded_components when the user wants to keep certain parts intact in the section (e.g., fasteners, gaskets — anything that shouldn't be cut). Component names must match Component2.Name2 exactly (case-insensitive). Names not found in the assembly are returned in excluded_not_found — read those back to the user as a hint that they may have typo'd a component name.`;
